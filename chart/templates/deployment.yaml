@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "crococoder-status.fullname" . }}
+  labels:
+    {{- include "crococoder-status.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  revisionHistoryLimit: 3
+  # Start the new Pod before stopping the old one: no downtime during a rollout.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      {{- include "crococoder-status.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "crococoder-status.selectorLabels" . | nindent 8 }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      # The app never calls the Kubernetes API: do not mount a token into the Pod.
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          image: {{ include "crococoder-status.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.containerPort }}
+              protocol: TCP
+          env:
+            # Shown by GET / so a rollout is visible from the outside.
+            - name: APP_VERSION
+              value: {{ .Values.image.tag | quote }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.probes.path }}
+              port: http
+            {{- toYaml .Values.probes.liveness | nindent 12 }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.probes.path }}
+              port: http
+            {{- toYaml .Values.probes.readiness | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}

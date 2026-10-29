@@ -1,0 +1,71 @@
+# Default values. Environment-specific values live in the ref-gitops repo
+# (apps/crococoder-status/values-dev.yaml and values-prod.yaml) and override these.
+
+nameOverride: ""
+fullnameOverride: ""
+
+replicaCount: 1
+
+image:
+  repository: ghcr.io/samyas/ref-app-repo   # lowercase, as published by the CI
+  # No default on purpose: the tag must be an exact version (sha-1a2b3c4 or v1.2.3).
+  # Rendering fails if it is empty or "latest". The CI updates it in ref-gitops.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# Needed only if the GHCR package is private, e.g. [{name: ghcr-pull}]
+imagePullSecrets: []
+
+containerPort: 3000   # the port server.js listens on
+
+service:
+  type: ClusterIP
+  port: 80            # exposed port; the port is named "http" so the ServiceMonitor can reference it
+
+# Requests are mandatory: the namespace ResourceQuota counts them.
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 256Mi
+
+probes:
+  path: /health
+  liveness:
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    timeoutSeconds: 2
+    failureThreshold: 3
+  readiness:
+    initialDelaySeconds: 3
+    periodSeconds: 5
+    timeoutSeconds: 2
+    failureThreshold: 3
+
+# Meets the Pod Security "restricted" level enforced by Terraform on dev and prod.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000      # the "node" user of the official Node image
+  runAsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+podAnnotations: {}
+
+# Prometheus scraping. Off until kube-prometheus-stack is installed (Phase 6),
+# because the ServiceMonitor CRD does not exist before that.
+serviceMonitor:
+  enabled: false
+  interval: 30s
+  path: /metrics
+  # Must match the serviceMonitorSelector of your Prometheus. With kube-prometheus-stack
+  # this is usually: release: <name of the Helm release of the stack>
+  labels: {}
