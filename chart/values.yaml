@@ -69,3 +69,20 @@ serviceMonitor:
   # Must match the serviceMonitorSelector of your Prometheus. With kube-prometheus-stack
   # this is usually: release: <name of the Helm release of the stack>
   labels: {}
+
+# Alert on the share of HTTP 5xx responses. Needs the Prometheus Operator CRDs (Phase 6).
+prometheusRule:
+  enabled: false
+  errorRateThreshold: 0.05   # simple alert: 5% of requests are 5xx
+  for: 1m
+  sloTarget: 0.995           # availability SLO (see docs/slo.md): 99.5% of requests not 5xx
+  fastBurnRate: 14.4         # budget burning 14.4x too fast = 2% of a 30-day budget in 1 hour
+  runbookUrl: ""             # link to docs/runbook-bad-release.md in your repo
+  labels: {}                 # must carry the stack's release label, like the ServiceMonitor
+
+# Allow rule for the app. Needs a CNI that enforces NetworkPolicies (Calico).
+# The default-deny policy itself is created by Terraform (ref-infra).
+networkPolicy:
+  enabled: false
+  monitoringNamespace: monitoring
+  extraIngress: []           # more allowed sources, in NetworkPolicy "from" syntax (e.g. an Ingress controller)

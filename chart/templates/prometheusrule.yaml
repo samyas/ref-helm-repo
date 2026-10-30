@@ -1,0 +1,55 @@
+{{- if .Values.prometheusRule.enabled }}
+{{- $ns := .Release.Namespace }}
+{{- /* Fast-burn threshold = burn rate x error budget, e.g. 14.4 x (1 - 0.995) = 0.0720 */}}
+{{- $burn := printf "%.4f" (mulf .Values.prometheusRule.fastBurnRate (subf 1 .Values.prometheusRule.sloTarget)) }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "crococoder-status.fullname" . }}
+  labels:
+    {{- include "crococoder-status.labels" . | nindent 4 }}
+    {{- with .Values.prometheusRule.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+    - name: {{ include "crococoder-status.fullname" . }}.rules
+      rules:
+        # Simple alert: a visible, quick signal while testing with /boom.
+        - alert: HighErrorRate
+          expr: |
+            sum(rate(http_requests_total{namespace="{{ $ns }}",status=~"5.."}[2m]))
+              / sum(rate(http_requests_total{namespace="{{ $ns }}"}[2m]))
+              > {{ .Values.prometheusRule.errorRateThreshold }}
+          for: {{ .Values.prometheusRule.for }}
+          labels:
+            severity: warning
+          annotations:
+            summary: "High error rate on {{ include "crococoder-status.fullname" . }} ({{ $ns }})"
+            description: "More than {{ printf "%.0f" (mulf .Values.prometheusRule.errorRateThreshold 100) }}% of requests returned 5xx. Current ratio: {{`{{ $value | humanizePercentage }}`}}"
+
+        # SLO alert: the error budget is burning {{ .Values.prometheusRule.fastBurnRate }}x too fast.
+        # Two windows: 1h shows it is sustained, 5m shows it is still happening now.
+        - alert: ErrorBudgetFastBurn
+          expr: |
+            (
+              sum(rate(http_requests_total{namespace="{{ $ns }}",status=~"5.."}[1h]))
+                / sum(rate(http_requests_total{namespace="{{ $ns }}"}[1h]))
+              > {{ $burn }}
+            )
+            and
+            (
+              sum(rate(http_requests_total{namespace="{{ $ns }}",status=~"5.."}[5m]))
+                / sum(rate(http_requests_total{namespace="{{ $ns }}"}[5m]))
+              > {{ $burn }}
+            )
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Error budget burning fast on {{ include "crococoder-status.fullname" . }} ({{ $ns }})"
+            description: "5xx ratio is above {{ $burn }} on both 1h and 5m windows (SLO {{ .Values.prometheusRule.sloTarget }}). At this rate the 30-day budget is gone in about two days."
+            {{- with .Values.prometheusRule.runbookUrl }}
+            runbook_url: {{ . | quote }}
+            {{- end }}
+{{- end }}
